@@ -20,13 +20,13 @@ const FROWN = [
 
 // Per site: which button opens the post menu, where ours goes beside it, which icon.
 const SITES = {
-  'www.linkedin.com': {
-    find: 'button[aria-label*="control menu" i], button[aria-label*="menu di controllo" i]',
+  linkedin: {
+    find: 'button:has(svg[id*="overflow"]), button[aria-label*="control menu" i], button[aria-label*="menu di controllo" i]',
     place: (trigger, btn) => trigger.after(btn), // between the ... and the X
     icon: THUMBS_DOWN,
     cls: 'ni-li',
   },
-  'x.com': {
+  x: {
     // article scopes it to posts: the sidebar trends carry the same testid.
     find: 'article button[data-testid="caret"]',
     place: (trigger, btn) => group(trigger).before(btn), // between Grok and the ...
@@ -34,7 +34,14 @@ const SITES = {
     cls: 'ni-x',
   },
 };
-let site = SITES[location.hostname];
+
+function resolveSite(host = location.hostname) {
+  if (SITES[host]) return SITES[host];
+  if (host.endsWith('linkedin.com')) return SITES.linkedin;
+  if (host.endsWith('x.com') || host.endsWith('twitter.com')) return SITES.x;
+  return null;
+}
+let site = resolveSite();
 
 // ponytail: the row matcher needs no per-site config - LinkedIn's icon carries an
 // svg id, X's doesn't, so X just falls through to the text match.
@@ -105,7 +112,11 @@ function findNotInterested() {
   );
 }
 
-async function notInterested(trigger) {
+async function notInterested(trigger, btn) {
+  if (btn) {
+    btn.disabled = true;
+    btn.classList.add('ni-loading');
+  }
   setBusy(1);
   let item = null;
   try {
@@ -116,7 +127,13 @@ async function notInterested(trigger) {
     // Leave that menu open and visible: the user can finish the job by hand.
     else console.warn('[notInteresting] no "Not interested" row here - leaving the menu open', trigger);
   } finally {
-    setTimeout(() => setBusy(-1), item ? 300 : 0); // let the site finish closing the menu
+    setTimeout(() => {
+      setBusy(-1);
+      if (btn) {
+        btn.disabled = false;
+        btn.classList.remove('ni-loading');
+      }
+    }, item ? 300 : 0); // let the site finish closing the menu
   }
 }
 
@@ -132,7 +149,8 @@ function makeButton(trigger) {
   btn.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    notInterested(trigger);
+    if (btn.classList.contains('ni-loading')) return;
+    notInterested(trigger, btn);
   });
   return btn;
 }
@@ -150,12 +168,33 @@ function inject() {
   }
 }
 
-let timer;
-new MutationObserver(() => {
-  clearTimeout(timer);
-  timer = setTimeout(inject, 200);
-}).observe(document.body, { childList: true, subtree: true });
+// Leading + trailing throttle: runs at most every 250ms during continuous scroll,
+// preventing debounce starvation while ensuring new feed items get their buttons.
+let scheduled = null;
+let lastRun = 0;
+const THROTTLE_MS = 250;
+
+function scheduleInject() {
+  const now = Date.now();
+  const remaining = THROTTLE_MS - (now - lastRun);
+  if (remaining <= 0) {
+    if (scheduled) {
+      clearTimeout(scheduled);
+      scheduled = null;
+    }
+    lastRun = now;
+    inject();
+  } else if (!scheduled) {
+    scheduled = setTimeout(() => {
+      scheduled = null;
+      lastRun = Date.now();
+      inject();
+    }, remaining);
+  }
+}
+
+new MutationObserver(scheduleInject).observe(document.body, { childList: true, subtree: true });
 inject();
 
 // ponytail: test seam for selftest.html, invisible to the page (isolated world).
-window.notInteresting = { inject, use: (host) => (site = SITES[host]) };
+window.notInteresting = { inject, use: (host) => (site = resolveSite(host)) };

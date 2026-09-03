@@ -4,6 +4,13 @@
    read off each site's own ... button. */
 .ni-btn {
   justify-content: center;
+  transition: opacity 0.15s ease;
+}
+
+.ni-btn.ni-loading {
+  opacity: 0.4;
+  pointer-events: none;
+  cursor: wait;
 }
 
 /* LinkedIn: a grey circle filling the button box, tinted with the icon colour so it

@@ -99,10 +99,20 @@
 
     document.querySelector('#li .ni-btn').click();
     check(document.documentElement.classList.contains('ni-busy'), 'LI: menu suppressed while working');
+    check(document.querySelector('#li .ni-btn').classList.contains('ni-loading'), 'LI: button marked as loading');
+    check(document.querySelector('#li .ni-btn').disabled, 'LI: button disabled while working');
     await sleep(600);
     check(clicked.li === 'not-interested', `LI: clicked the row by svg id (got: ${clicked.li})`);
     await sleep(400);
     check(!document.documentElement.classList.contains('ni-busy'), 'LI: suppression lifted afterwards');
+    check(!document.querySelector('#li .ni-btn').classList.contains('ni-loading'), 'LI: loading state removed');
+    check(!document.querySelector('#li .ni-btn').disabled, 'LI: button re-enabled');
+
+    // --- Domain resolution ------------------------------------------------
+    use('twitter.com');
+    check(window.notInteresting, 'Domain resolution: twitter.com resolved');
+    use('linkedin.com');
+    check(window.notInteresting, 'Domain resolution: linkedin.com resolved');
 
     // --- X ----------------------------------------------------------------
     use('x.com');
