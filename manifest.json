@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "notInteresting",
+  "version": "0.1.0",
+  "description": "One-click \"Not interested\" on LinkedIn and X.",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.linkedin.com/*",
+        "https://x.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

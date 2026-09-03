@@ -1,0 +1,48 @@
+/* Each site's icon-button hover has to be restated here: LinkedIn's rules are served
+   cross-origin (unreadable, and not carried by wearing their classes), and X's is not
+   CSS at all - React paints an inline background on an overlay div. Values below are
+   read off each site's own ... button. */
+.ni-btn {
+  justify-content: center;
+}
+
+/* LinkedIn: a grey circle filling the button box, tinted with the icon colour so it
+   works in both themes. */
+.ni-li .ni-btn:hover,
+.ni-li .ni-btn:focus-visible {
+  background-color: color-mix(in srgb, currentColor 12%, transparent);
+  border-radius: 50%;
+}
+
+/* X: an oversized circle behind a smaller icon, plus the icon turning accent-blue.
+   ponytail: X's accent is themeable (blue is the default); change these two values
+   if you run one of the other accents. */
+.ni-x .ni-btn {
+  position: relative;
+}
+
+.ni-x .ni-btn::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 35px;
+  height: 35px;
+  transform: translate(-50%, -50%);
+  border-radius: 9999px;
+}
+
+.ni-x .ni-btn:hover,
+.ni-x .ni-btn:focus-visible {
+  color: rgb(29, 155, 240);
+}
+
+.ni-x .ni-btn:hover::before,
+.ni-x .ni-btn:focus-visible::before {
+  background-color: rgba(29, 155, 240, 0.1);
+}
+
+/* Keep the synthetic control-menu open invisible. */
+.ni-busy [role="menu"] {
+  visibility: hidden !important;
+}

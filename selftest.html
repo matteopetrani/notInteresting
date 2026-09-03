@@ -1,0 +1,132 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>notInteresting self-test</title>
+<link rel="stylesheet" href="content.css">
+
+<!-- Fixtures matching the real (class-hashed) markup of each site. Both render the
+     menu lazily and portal it to the body, as the real ones do. -->
+
+<!-- LinkedIn: ... and X are siblings; menu rows carry an svg id. -->
+<div id="li">
+  <div class="headerActions">
+    <div></div>
+    <button class="_9f2b iconBtn" type="button" aria-label="Open control menu for post by Zac Brooks"><svg id="overflow-medium" class="_9f2b icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M3 7h2v2H3zm5 0h2v2H8zm5 0h2v2h-2z"/></svg></button>
+    <button class="_9f2b iconBtn dismiss" type="button" aria-label="Hide post by Zac Brooks">X</button>
+  </div>
+</div>
+
+<!-- X: the caret is buried in only-child wrappers, next to the Grok wrapper. -->
+<article id="x">
+  <div class="row">
+    <div class="grokWrap"><button class="r-1 xbtn" type="button" aria-label="Grok actions">G</button></div>
+    <div class="caretOuter"><div class="caretInner"><button class="r-1 xbtn" type="button" data-testid="caret" aria-label="More"><svg class="r-1 xicon" width="19" viewBox="0 0 24 24" fill="currentColor"><path d="M3 12h2v2H3z"/></svg></button></div></div>
+  </div>
+</div>
+
+</article>
+
+<pre id="out"></pre>
+
+<script>
+  // Each fixture's menu: built on trigger click, appended to body, rows vary by site.
+  const clicked = {};
+  const fakeMenu = (trigger, key, rows) =>
+    trigger.addEventListener('click', () => {
+      const open = document.querySelector(`[role="menu"][data-key="${key}"]`);
+      if (open) return open.remove(); // real menus toggle
+      setTimeout(() => {
+        const menu = document.createElement('div');
+        menu.setAttribute('role', 'menu');
+        menu.dataset.key = key;
+        menu.innerHTML = rows();
+        menu.addEventListener('click', (e) => {
+          clicked[key] = e.target.closest('[data-row]')?.dataset.row;
+          menu.remove(); // real menus close on selection
+        });
+        document.body.append(menu);
+      }, 100);
+    });
+
+  const liTrigger = document.querySelector('[aria-label^="Open control menu"]');
+  const xTrigger = document.querySelector('[data-testid="caret"]');
+
+  fakeMenu(liTrigger, 'li', () => `
+    <div role="menuitem" data-row="save"><svg id="bookmark-outline-medium"></svg>Save</div>
+    <div role="menuitem" data-row="slop"><svg id="signal-caution-medium"></svg>Seems like AI slop</div>
+    <div role="menuitem" data-row="not-interested"><svg id="thumbs-down-fill-medium"></svg>Not interested</div>`);
+  // X has no svg ids, so this row is only findable by its text.
+  let xRows = `
+    <div role="menuitem" data-row="not-interested"><svg></svg>Not interested in this post</div>
+    <div role="menuitem" data-row="mute"><svg></svg>Mute</div>`;
+  fakeMenu(xTrigger, 'x', () => xRows);
+</script>
+
+<script src="content.js"></script>
+
+<script>
+  const log = [];
+  const check = (ok, msg) => {
+    log.push(`${ok ? 'PASS' : 'FAIL'}  ${msg}`);
+    console.assert(ok, msg);
+  };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  (async () => {
+    const { inject, use } = window.notInteresting;
+
+    // --- LinkedIn ---------------------------------------------------------
+    use('www.linkedin.com');
+    inject();
+    let btn = document.querySelector('#li .ni-btn');
+    check(document.querySelectorAll('#li .ni-btn').length === 1, 'LI: one button injected');
+    check(liTrigger.nextElementSibling === btn, 'LI: button sits right after the ...');
+    check(btn.nextElementSibling === document.querySelector('.dismiss'), 'LI: and right before the X');
+    check(btn.classList.contains('iconBtn'), "LI: inherits the ... button's classes");
+
+    // Guards the Trusted Types trap: innerHTML silently no-ops on LinkedIn, so the
+    // icon must be built with DOM calls or the button ships empty.
+    const icon = btn.querySelector('svg');
+    check(!!icon?.querySelector('path'), 'LI: icon is a real SVG element with a path');
+    check(icon.getAttribute('class') === '_9f2b icon', "LI: icon wears the site's icon classes");
+    check(!icon.id, 'LI: cloned icon drops the duplicate id');
+    check(icon.getAttribute('viewBox') === '0 0 24 24', 'LI: viewBox re-gridded to 24');
+
+    inject();
+    check(document.querySelectorAll('#li .ni-btn').length === 1, 'LI: re-running inject() adds no duplicate');
+    btn.remove();
+    inject();
+    check(document.querySelectorAll('#li .ni-btn').length === 1, 'LI: a re-render that drops it gets it back');
+
+    document.querySelector('#li .ni-btn').click();
+    check(document.documentElement.classList.contains('ni-busy'), 'LI: menu suppressed while working');
+    await sleep(600);
+    check(clicked.li === 'not-interested', `LI: clicked the row by svg id (got: ${clicked.li})`);
+    await sleep(400);
+    check(!document.documentElement.classList.contains('ni-busy'), 'LI: suppression lifted afterwards');
+
+    // --- X ----------------------------------------------------------------
+    use('x.com');
+    inject();
+    btn = document.querySelector('#x .ni-btn');
+    const row = document.querySelector('#x .row');
+    check(document.querySelectorAll('#x .ni-btn').length === 1, 'X: one button injected');
+    check([...row.children].indexOf(btn) === 1, 'X: button sits between Grok and the ...');
+    check(row.children[2].contains(xTrigger), 'X: the ... wrapper chain stays intact');
+    check(btn.querySelectorAll('svg circle').length === 3, 'X: gets the frowning-face icon');
+    check(document.documentElement.classList.contains('ni-x'), 'X: site class set for the hover rules');
+
+    btn.click();
+    await sleep(600);
+    check(clicked.x === 'not-interested', `X: found the row by text alone (got: ${clicked.x})`);
+
+    // --- no match (your own post, or X outside the timeline) ---------------
+    clicked.x = null;
+    xRows = '<div role="menuitem" data-row="delete">Delete</div>';
+    btn.click();
+    await sleep(1800);
+    check(!document.documentElement.classList.contains('ni-busy'), 'no match: menu left visible for the user');
+
+    log.push(log.some((l) => l.startsWith('FAIL')) ? '\nSOME CHECKS FAILED' : '\nall checks passed');
+    document.getElementById('out').textContent = log.join('\n');
+  })();
+</script>
