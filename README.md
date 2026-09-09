@@ -29,8 +29,15 @@ does what you'd have done by hand.
 
 Works in any Chromium browser — Chrome, Brave, Edge, Arc.
 
+The button follows the page language for English, Italian, French, German, Spanish,
+and Portuguese. The underlying action is found by the sites' semantic markup where
+available, with localized text as a fallback.
+
 ## Notes
 
 On X, "Not interested in this post" only exists in the timeline, not on a post's own
 page. If the option isn't there, the extension leaves the menu open so you can pick
 something else yourself.
+
+If you have an overflow menu open already, the button uses that menu rather than
+toggling it closed.

@@ -21,7 +21,16 @@ const FROWN = [
 // Per site: which button opens the post menu, where ours goes beside it, which icon.
 const SITES = {
   linkedin: {
-    find: 'button:has(svg[id*="overflow"]), button[aria-label*="control menu" i], button[aria-label*="menu di controllo" i]',
+    // An overflow icon occurs in lots of LinkedIn UI, so only use it inside a post.
+    // The accessible label is a useful fallback while LinkedIn changes its wrappers.
+    find: 'button[aria-label*="control menu" i], button[aria-label*="menu di controllo" i], article button:has(svg[id*="overflow"])',
+    accept: (trigger) => {
+      const label = trigger.getAttribute('aria-label') || '';
+      return (
+        /(?:control menu|menu di controllo)/i.test(label) && /(?:post|pubblicazione)/i.test(label) ||
+        !!trigger.closest('article, [data-urn*="activity"], [data-id*="urn:li:activity"]')
+      );
+    },
     place: (trigger, btn) => trigger.after(btn), // between the ... and the X
     icon: THUMBS_DOWN,
     cls: 'ni-li',
@@ -29,6 +38,7 @@ const SITES = {
   x: {
     // article scopes it to posts: the sidebar trends carry the same testid.
     find: 'article button[data-testid="caret"]',
+    accept: () => true,
     place: (trigger, btn) => group(trigger).before(btn), // between Grok and the ...
     icon: FROWN,
     cls: 'ni-x',
@@ -45,8 +55,20 @@ let site = resolveSite();
 
 // ponytail: the row matcher needs no per-site config - LinkedIn's icon carries an
 // svg id, X's doesn't, so X just falls through to the text match.
-const NOT_INTERESTED = ['not interested', 'non mi interessa']; // add locales as they show up
-const LABEL = 'Not interested';
+const TEXT_BY_LANG = {
+  de: 'Nicht interessiert',
+  en: 'Not interested',
+  es: 'No me interesa',
+  fr: 'Pas intéressé',
+  it: 'Non mi interessa',
+  pt: 'Não tenho interesse',
+};
+const NOT_INTERESTED = Object.values(TEXT_BY_LANG).map((text) => text.toLocaleLowerCase());
+
+function actionLabel() {
+  const lang = document.documentElement.lang.toLowerCase().split('-')[0];
+  return TEXT_BY_LANG[lang] || TEXT_BY_LANG.en;
+}
 
 // The button each site paints its icon into is wrapped in a chain of only-child
 // divs; the whole chain is the thing to insert next to.
@@ -80,34 +102,66 @@ function makeIcon(trigger) {
   return icon;
 }
 
-// Hide the synthetic menu open. Counted, so overlapping clicks can't unhide early.
-let busy = 0;
-function setBusy(n) {
-  busy += n;
-  document.documentElement.classList.toggle('ni-busy', busy > 0);
-}
-
-function waitFor(fn, timeout = 1500, step = 50) {
-  const start = Date.now();
+function waitFor(fn, timeout = 1500) {
   return new Promise((resolve) => {
-    (function poll() {
+    let timer;
+    const observer = new MutationObserver(check);
+    function done(value) {
+      observer.disconnect();
+      clearTimeout(timer);
+      resolve(value || null);
+    }
+    function check() {
       const v = fn();
-      if (v || Date.now() - start > timeout) return resolve(v || null);
-      setTimeout(poll, step);
-    })();
+      if (v) done(v);
+    }
+    observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true });
+    timer = setTimeout(() => done(null), timeout);
+    check();
   });
 }
 
-function findNotInterested() {
-  // The menu is portalled out of the post, so search every open one. Visible only:
-  // a leftover hidden menu would belong to a different post.
-  const menus = [...document.querySelectorAll('[role="menu"]')].filter((m) => m.checkVisibility());
-  const rows = menus.flatMap((m) => [...m.querySelectorAll('[role="menuitem"]')]);
+function openMenus() {
+  return [...document.querySelectorAll('[role="menu"]')].filter((menu) => {
+    const style = getComputedStyle(menu);
+    return !menu.hidden && style.display !== 'none' && style.visibility !== 'hidden';
+  });
+}
+
+function controlledMenu(trigger) {
+  const ids = [trigger.getAttribute('aria-controls'), trigger.getAttribute('aria-owns')]
+    .filter(Boolean)
+    .flatMap((value) => value.split(/\s+/));
+  return ids.map((id) => document.getElementById(id)).find((menu) => menu?.matches('[role="menu"]')) || null;
+}
+
+async function openTargetMenu(trigger) {
+  const linked = controlledMenu(trigger);
+  const open = openMenus();
+  const openLinked = linked && open.includes(linked) ? linked : null;
+  if (trigger.getAttribute('aria-expanded') === 'true') {
+    // Most menus expose aria-controls. The one-menu fallback also handles sites
+    // that omit it, without guessing when another menu is open elsewhere.
+    return openLinked || (open.length === 1 ? open[0] : null);
+  }
+
+  const previous = new Set(open);
+  trigger.click();
+  return waitFor(() => {
+    const menu = controlledMenu(trigger);
+    if (menu && openMenus().includes(menu)) return menu;
+    return openMenus().find((candidate) => !previous.has(candidate)) || null;
+  });
+}
+
+function findNotInterested(menu) {
+  const rows = [...menu.querySelectorAll('[role="menuitem"]')];
   // Locale-proof where it can be: LinkedIn's is the only thumbs-down in that menu
   // (AI slop uses a caution signal, the feed's thumbs-UP Like button is outside it).
   return (
+    menu.querySelector('[data-testid*="not-interested" i]') ||
     rows.find((r) => r.querySelector('svg[id*="thumbs-down"]')) ||
-    rows.find((r) => NOT_INTERESTED.some((s) => r.textContent.trim().toLowerCase().includes(s))) ||
+    rows.find((r) => NOT_INTERESTED.some((s) => r.textContent.trim().toLocaleLowerCase().includes(s))) ||
     null
   );
 }
@@ -117,18 +171,19 @@ async function notInterested(trigger, btn) {
     btn.disabled = true;
     btn.classList.add('ni-loading');
   }
-  setBusy(1);
   let item = null;
+  let menu = null;
   try {
-    trigger.click();
-    item = await waitFor(findNotInterested);
+    menu = await openTargetMenu(trigger);
+    if (menu) menu.classList.add('ni-menu-hidden');
+    item = menu && findNotInterested(menu);
     if (item) item.click();
     // Nothing to click on your own posts, and X only offers this in the timeline.
     // Leave that menu open and visible: the user can finish the job by hand.
     else console.warn('[notInteresting] no "Not interested" row here - leaving the menu open', trigger);
   } finally {
     setTimeout(() => {
-      setBusy(-1);
+      menu?.classList.remove('ni-menu-hidden');
       if (btn) {
         btn.disabled = false;
         btn.classList.remove('ni-loading');
@@ -143,8 +198,9 @@ function makeButton(trigger) {
   // Wear the ... button's own (hashed) classes: identical size, shape and hover for
   // free, and it keeps matching whatever the site restyles next.
   btn.className = `${trigger.className} ni-btn`;
-  btn.setAttribute('aria-label', LABEL);
-  btn.title = LABEL;
+  const label = actionLabel();
+  btn.setAttribute('aria-label', label);
+  btn.title = label;
   btn.append(makeIcon(trigger));
   btn.addEventListener('click', (e) => {
     e.preventDefault();
@@ -160,6 +216,7 @@ function inject() {
   if (!site) return;
   document.documentElement.classList.add(site.cls); // lets content.css tell the sites apart
   for (const trigger of document.querySelectorAll(site.find)) {
+    if (!site.accept(trigger)) continue;
     // Re-place it if a re-render dropped ours, rather than trusting a flag.
     if (placed.get(trigger)?.isConnected) continue;
     const btn = makeButton(trigger);

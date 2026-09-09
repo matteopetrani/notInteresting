@@ -33,7 +33,10 @@
   const fakeMenu = (trigger, key, rows) =>
     trigger.addEventListener('click', () => {
       const open = document.querySelector(`[role="menu"][data-key="${key}"]`);
-      if (open) return open.remove(); // real menus toggle
+      if (open) {
+        trigger.setAttribute('aria-expanded', 'false');
+        return open.remove(); // real menus toggle
+      }
       setTimeout(() => {
         const menu = document.createElement('div');
         menu.setAttribute('role', 'menu');
@@ -41,9 +44,11 @@
         menu.innerHTML = rows();
         menu.addEventListener('click', (e) => {
           clicked[key] = e.target.closest('[data-row]')?.dataset.row;
+          trigger.setAttribute('aria-expanded', 'false');
           menu.remove(); // real menus close on selection
         });
         document.body.append(menu);
+        trigger.setAttribute('aria-expanded', 'true');
       }, 100);
     });
 
@@ -97,16 +102,33 @@
     inject();
     check(document.querySelectorAll('#li .ni-btn').length === 1, 'LI: a re-render that drops it gets it back');
 
+    // An unrelated, already-open menu must never receive the click.
+    const staleMenu = document.createElement('div');
+    staleMenu.setAttribute('role', 'menu');
+    staleMenu.innerHTML = '<div role="menuitem" data-row="wrong">Not interested</div>';
+    staleMenu.addEventListener('click', () => { clicked.stale = true; });
+    document.body.append(staleMenu);
+
     document.querySelector('#li .ni-btn').click();
-    check(document.documentElement.classList.contains('ni-busy'), 'LI: menu suppressed while working');
+    await sleep(200);
+    check(!staleMenu.classList.contains('ni-menu-hidden'), 'LI: leaves an unrelated menu alone');
     check(document.querySelector('#li .ni-btn').classList.contains('ni-loading'), 'LI: button marked as loading');
     check(document.querySelector('#li .ni-btn').disabled, 'LI: button disabled while working');
     await sleep(600);
     check(clicked.li === 'not-interested', `LI: clicked the row by svg id (got: ${clicked.li})`);
+    check(!clicked.stale, 'LI: ignored an unrelated open menu');
+    staleMenu.remove();
     await sleep(400);
-    check(!document.documentElement.classList.contains('ni-busy'), 'LI: suppression lifted afterwards');
+    check(!document.querySelector('.ni-menu-hidden'), 'LI: suppression lifted afterwards');
     check(!document.querySelector('#li .ni-btn').classList.contains('ni-loading'), 'LI: loading state removed');
     check(!document.querySelector('#li .ni-btn').disabled, 'LI: button re-enabled');
+
+    // A menu that the user already opened must be used, not toggled closed.
+    liTrigger.click();
+    await sleep(200);
+    document.querySelector('#li .ni-btn').click();
+    await sleep(600);
+    check(clicked.li === 'not-interested', 'LI: uses its already-open menu');
 
     // --- Domain resolution ------------------------------------------------
     use('twitter.com');
@@ -134,7 +156,7 @@
     xRows = '<div role="menuitem" data-row="delete">Delete</div>';
     btn.click();
     await sleep(1800);
-    check(!document.documentElement.classList.contains('ni-busy'), 'no match: menu left visible for the user');
+    check(!document.querySelector('.ni-menu-hidden'), 'no match: menu left visible for the user');
 
     log.push(log.some((l) => l.startsWith('FAIL')) ? '\nSOME CHECKS FAILED' : '\nall checks passed');
     document.getElementById('out').textContent = log.join('\n');
