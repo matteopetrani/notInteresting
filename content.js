@@ -201,7 +201,12 @@ function makeButton(trigger) {
   const label = actionLabel();
   btn.setAttribute('aria-label', label);
   btn.title = label;
-  btn.append(makeIcon(trigger));
+  // LinkedIn now paints the icon inside a span child (colour, padding, round hover);
+  // wear that too, or ours drifts from the neighbours (darker icon, no round hover).
+  const wrap = trigger.querySelector('svg')?.parentElement;
+  const shell = wrap && wrap.parentElement === trigger ? wrap.cloneNode(false) : btn;
+  shell.append(makeIcon(trigger));
+  if (shell !== btn) btn.append(shell);
   btn.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
